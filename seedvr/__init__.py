@@ -21,6 +21,10 @@ Includes two models:
 - SeedVR2: One-step video restoration via diffusion adversarial post-training
 """
 
+import os
+import sys
+from pathlib import Path
+
 __version__ = "1.0.0"
 __author__ = "Jianyi Wang, Bytedance Ltd."
 __license__ = "Apache-2.0"
@@ -32,3 +36,9 @@ __all__ = [
     "__license__",
     "__copyright__",
 ]
+
+SEEDVR_LOCATION = Path(os.path.abspath(__file__)).parents[0]
+
+CONFIGS_PATH = SEEDVR_LOCATION / 'configs'
+
+sys.path.insert(0, str(SEEDVR_LOCATION))

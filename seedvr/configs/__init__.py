@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Configuration files for SeedVR 7B models."""
+"""Configuration files for SeedVR models."""
