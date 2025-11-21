@@ -73,7 +73,7 @@ Repository = "https://github.com/ByteDance-Seed/SeedVR"
 Issues = "https://github.com/ByteDance-Seed/SeedVR/issues"
 
 [tool.setuptools]
-packages = ["common", "data", "models", "projects", "configs_3b", "configs_7b"]
+packages = {find = {where = ["."], include = ["seedvr*"]}}
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml", "*.json"]
