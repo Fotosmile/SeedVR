@@ -41,18 +41,14 @@ def get_norm_layer(norm_type: Optional[str]) -> norm_layer_type:
             )
 
         if norm_type == "fusedln":
-            from apex.normalization import FusedLayerNorm
-
-            return FusedLayerNorm(
+            return nn.LayerNorm(
                 normalized_shape=dim,
                 elementwise_affine=elementwise_affine,
                 eps=eps,
             )
 
         if norm_type == "fusedrms":
-            from apex.normalization import FusedRMSNorm
-
-            return FusedRMSNorm(
+            return nn.RMSNorm(
                 normalized_shape=dim,
                 elementwise_affine=elementwise_affine,
                 eps=eps,

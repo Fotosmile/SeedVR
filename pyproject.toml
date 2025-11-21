@@ -41,15 +41,16 @@ classifiers = [
 ]
 
 dependencies = [
-    "einops==0.7.0",
-    "torch==2.3.0",
-    "torchvision==0.18.0",
-    "omegaconf==2.3.0",
-    "opencv-python==4.9.0.80",
-    "diffusers==0.29.1",
-    "rotary-embedding-torch==0.5.3",
-    "transformers==4.38.2",
-    "mediapy==1.2.0",
+    "einops",
+    "torch",
+    "torchvision",
+    "omegaconf",
+    "opencv-python",
+    "diffusers",
+    "accelerate",
+    "rotary-embedding-torch",
+    "transformers",
+    "mediapy",
 ]
 
 [project.optional-dependencies]
@@ -58,13 +59,11 @@ dev = [
     "black>=23.0",
     "ruff>=0.1.0",
 ]
-# Note: flash-attn and apex require manual installation with specific flags
-# flash-attn: pip install flash_attn==2.5.9.post1 --no-build-isolation
-# apex: Download pre-built wheels from HuggingFace for python 3.9/3.10
+# Note: flash-attn is optional and requires manual installation with specific flags
+# flash-attn: pip install flash_attn>=2.5.9.post1 --no-build-isolation
 acceleration = [
     # Placeholder for documentation - requires manual installation
-    # "flash-attn==2.5.9.post1",  # Install with: pip install flash_attn==2.5.9.post1 --no-build-isolation
-    # "apex",  # Download from: https://huggingface.co/ByteDance-Seed/
+    # "flash-attn>=2.5.9.post1",  # Install with: pip install flash_attn --no-build-isolation
 ]
 
 [project.urls]
