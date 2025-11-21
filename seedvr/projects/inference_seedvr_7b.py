@@ -190,10 +190,12 @@ def generation_loop(runner, video_path='./test_videos', output_dir='./results', 
     # set random seed
     set_seed(seed, same_across_ranks=True)
     os.makedirs(output_dir, exist_ok=True)
+    print(f"Output directory created: {os.path.abspath(tgt_path)}")
     tgt_path = output_dir
 
     # get test prompts
     original_videos, _, _ = _build_test_prompts(video_path)
+    print(f"Found {len(original_videos)} videos to process")
 
     # divide the prompts into batches
     original_videos_local = partition_by_size(original_videos, batch_size)
@@ -232,6 +234,7 @@ def generation_loop(runner, video_path='./test_videos', output_dir='./results', 
                 ).unsqueeze(0) / 255.0
                 if sp_size > 1:
                     raise ValueError("Sp size should be set to 1 for image inputs!")
+                fps_lists.append(1.0)  # Dummy FPS for images
             else:
                 video, _, info = read_video(
                     os.path.join(video_path, video), output_format="TCHW"
@@ -262,12 +265,14 @@ def generation_loop(runner, video_path='./test_videos', output_dir='./results', 
         del cond_latents
 
         # dump samples to the output directory
+        print(f"Saving {len(samples)} samples to {tgt_path}")
         for path, input, sample, ori_length, save_fps in zip(
             videos, input_videos, samples, ori_lengths, fps_lists
         ):
             if ori_length < sample.shape[0]:
                 sample = sample[:ori_length]
             filename = os.path.join(tgt_path, os.path.basename(path))
+            print(f"Processing output file: {filename}")
             # color fix
             input = (
                 rearrange(input[:, None], "c t h w -> t c h w")
@@ -290,10 +295,12 @@ def generation_loop(runner, video_path='./test_videos', output_dir='./results', 
 
             if sample.shape[0] == 1:
                 mediapy.write_image(filename, sample.squeeze(0))
+                print(f"✓ Saved image to {filename}")
             else:
                 mediapy.write_video(
                     filename, sample, fps=save_fps
                 )
+                print(f"✓ Saved video to {filename}")
         gc.collect()
         torch.cuda.empty_cache()
 
