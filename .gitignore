@@ -4,6 +4,13 @@ __pycache__
 .idea
 .vscode
 
+# Python package build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
 /downloads
 /clip-vit-large-patch14
 /wandb
