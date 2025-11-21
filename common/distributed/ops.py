@@ -13,13 +13,12 @@
 # // limitations under the License.
 
 """
-Distributed ops for supporting sequence parallel.
+Distributed ops for supporting sequence parallel (non-distributed implementation).
 """
 
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 import torch
-import torch.distributed as dist
 from torch import Tensor
 
 from common.cache import Cache
@@ -481,14 +480,4 @@ sync_inputs = SPDistForward(name="bef_fwd", comm_shape=True)
 
 
 def sync_data(data, sp_idx, name="tmp"):
-    group = get_sequence_parallel_group()
-    if group is None:
-        return data
-    # if sp_idx in _SYNC_BUFFER[name]:
-    #     return _SYNC_BUFFER[name][sp_idx]
-    sp_rank = get_sequence_parallel_rank()
-    src_rank = dist.get_global_rank(group, sp_idx)
-    objects = [data] if sp_rank == sp_idx else [None]
-    dist.broadcast_object_list(objects, src=src_rank, group=group)
-    # _SYNC_BUFFER[name] = {sp_idx: objects[0]}
-    return objects[0]
+    return data

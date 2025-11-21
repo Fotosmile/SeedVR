@@ -37,29 +37,11 @@ from torchvision.io.video import read_video
 from torchvision.io import read_image
 
 
-from common.distributed import (
-    get_device,
-    init_torch,
-)
-
-from common.distributed.advanced import (
-    get_data_parallel_rank,
-    get_data_parallel_world_size,
-    get_sequence_parallel_rank,
-    get_sequence_parallel_world_size,
-    init_sequence_parallel,
-)
-
 from projects.video_diffusion_sr.infer import VideoDiffusionInfer
 from common.config import load_config
-from common.distributed.ops import sync_data
 from common.seed import set_seed
 from common.partition import partition_by_groups, partition_by_size
 import argparse
-
-def configure_sequence_parallel(sp_size):
-    if sp_size > 1:
-        init_sequence_parallel(sp_size)
 
 def is_image_file(filename):
     image_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
@@ -70,9 +52,12 @@ def configure_runner(sp_size):
     config = load_config(config_path)
     runner = VideoDiffusionInfer(config)
     OmegaConf.set_readonly(runner.config, False)
-    
-    init_torch(cudnn_benchmark=False, timeout=datetime.timedelta(seconds=3600))
-    configure_sequence_parallel(sp_size)
+
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = False
+    torch.cuda.set_device(0)
+
     runner.configure_dit_model(device="cuda", checkpoint='./ckpts/seedvr2_ema_7b.pth')
     runner.configure_vae_model()
     # Set memory limit.
@@ -81,13 +66,13 @@ def configure_runner(sp_size):
     return runner
 
 def generation_step(runner, text_embeds_dict, cond_latents):
+    device = torch.device("cuda", 0)
     def _move_to_cuda(x):
-        return [i.to(get_device()) for i in x]
+        return [i.to(device) for i in x]
 
     noises = [torch.randn_like(latent) for latent in cond_latents]
     aug_noises = [torch.randn_like(latent) for latent in cond_latents]
     print(f"Generating with noise shape: {noises[0].size()}.")
-    noises, aug_noises, cond_latents = sync_data((noises, aug_noises, cond_latents), 0)
     noises, aug_noises, cond_latents = list(
         map(lambda x: _move_to_cuda(x), (noises, aug_noises, cond_latents))
     )
@@ -95,10 +80,10 @@ def generation_step(runner, text_embeds_dict, cond_latents):
 
     def _add_noise(x, aug_noise):
         t = (
-            torch.tensor([1000.0], device=get_device())
+            torch.tensor([1000.0], device=device)
             * cond_noise_scale
         )
-        shape = torch.tensor(x.shape[1:], device=get_device())[None]
+        shape = torch.tensor(x.shape[1:], device=device)[None]
         t = runner.timestep_transform(t, shape)
         print(
             f"Timestep shifting from"
@@ -211,16 +196,8 @@ def generation_loop(runner, video_path='./test_videos', output_dir='./results', 
     # get test prompts
     original_videos, _, _ = _build_test_prompts(video_path)
 
-    # divide the prompts into different groups
-    original_videos_group = partition_by_groups(
-        original_videos,
-        get_data_parallel_world_size() // get_sequence_parallel_world_size(),
-    )
-    # store prompt mapping
-    original_videos_local = original_videos_group[
-        get_data_parallel_rank() // get_sequence_parallel_world_size()
-    ]
-    original_videos_local = partition_by_size(original_videos_local, batch_size)
+    # divide the prompts into batches
+    original_videos_local = partition_by_size(original_videos, batch_size)
 
     # pre-extract the text embeddings
     positive_prompts_embeds = _extract_text_embeds()
@@ -244,6 +221,7 @@ def generation_loop(runner, video_path='./test_videos', output_dir='./results', 
     )
 
     # generation loop
+    device = torch.device("cuda", 0)
     for videos, text_embeds in tqdm(zip(original_videos_local, positive_prompts_embeds)):
         # read condition latents
         cond_latents = []
@@ -262,7 +240,7 @@ def generation_loop(runner, video_path='./test_videos', output_dir='./results', 
                 video = video / 255.0
                 fps_lists.append(info["video_fps"] if out_fps is None else out_fps)
             print(f"Read video size: {video.size()}")
-            cond_latents.append(video_transform(video.to(get_device())))
+            cond_latents.append(video_transform(video.to(device)))
 
         ori_lengths = [video.size(1) for video in cond_latents]
         input_videos = cond_latents
@@ -270,54 +248,53 @@ def generation_loop(runner, video_path='./test_videos', output_dir='./results', 
 
         runner.dit.to("cpu")
         print(f"Encoding videos: {list(map(lambda x: x.size(), cond_latents))}")
-        runner.vae.to(get_device())
+        runner.vae.to(device)
         cond_latents = runner.vae_encode(cond_latents)
         runner.vae.to("cpu")
-        runner.dit.to(get_device())
+        runner.dit.to(device)
 
         for i, emb in enumerate(text_embeds["texts_pos"]):
-            text_embeds["texts_pos"][i] = emb.to(get_device())
+            text_embeds["texts_pos"][i] = emb.to(device)
         for i, emb in enumerate(text_embeds["texts_neg"]):
-            text_embeds["texts_neg"][i] = emb.to(get_device())
+            text_embeds["texts_neg"][i] = emb.to(device)
 
         samples = generation_step(runner, text_embeds, cond_latents=cond_latents)
         runner.dit.to("cpu")
         del cond_latents
 
         # dump samples to the output directory
-        if get_sequence_parallel_rank() == 0:
-            for path, input, sample, ori_length, save_fps in zip(
-                videos, input_videos, samples, ori_lengths, fps_lists
-            ):
-                if ori_length < sample.shape[0]:
-                    sample = sample[:ori_length]
-                filename = os.path.join(tgt_path, os.path.basename(path))
-                # color fix
-                input = (
-                    rearrange(input[:, None], "c t h w -> t c h w")
-                    if input.ndim == 3
-                    else rearrange(input, "c t h w -> t c h w")
+        for path, input, sample, ori_length, save_fps in zip(
+            videos, input_videos, samples, ori_lengths, fps_lists
+        ):
+            if ori_length < sample.shape[0]:
+                sample = sample[:ori_length]
+            filename = os.path.join(tgt_path, os.path.basename(path))
+            # color fix
+            input = (
+                rearrange(input[:, None], "c t h w -> t c h w")
+                if input.ndim == 3
+                else rearrange(input, "c t h w -> t c h w")
+            )
+            if use_colorfix:
+                sample = wavelet_reconstruction(
+                    sample.to("cpu"), input[: sample.size(0)].to("cpu")
                 )
-                if use_colorfix:
-                    sample = wavelet_reconstruction(
-                        sample.to("cpu"), input[: sample.size(0)].to("cpu")
-                    )
-                else:
-                    sample = sample.to("cpu")
-                sample = (
-                    rearrange(sample[:, None], "t c h w -> t h w c")
-                    if sample.ndim == 3
-                    else rearrange(sample, "t c h w -> t h w c")
-                )
-                sample = sample.clip(-1, 1).mul_(0.5).add_(0.5).mul_(255).round()
-                sample = sample.to(torch.uint8).numpy()
+            else:
+                sample = sample.to("cpu")
+            sample = (
+                rearrange(sample[:, None], "t c h w -> t h w c")
+                if sample.ndim == 3
+                else rearrange(sample, "t c h w -> t h w c")
+            )
+            sample = sample.clip(-1, 1).mul_(0.5).add_(0.5).mul_(255).round()
+            sample = sample.to(torch.uint8).numpy()
 
-                if sample.shape[0] == 1:
-                    mediapy.write_image(filename, sample.squeeze(0))
-                else:
-                    mediapy.write_video(
-                        filename, sample, fps=save_fps
-                    )
+            if sample.shape[0] == 1:
+                mediapy.write_image(filename, sample.squeeze(0))
+            else:
+                mediapy.write_video(
+                    filename, sample, fps=save_fps
+                )
         gc.collect()
         torch.cuda.empty_cache()
 

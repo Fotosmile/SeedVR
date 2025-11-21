@@ -157,13 +157,16 @@ snapshot_download(cache_dir=cache_dir,
 
 ## 🔥 Inference
 
-You need to set the related settings in the inference files.      
+You need to set the related settings in the inference files.
 
-**GPU Requirement:** We adopt sequence parallel to enable multi-GPU inference and 1 H100-80G can handle videos with 100x720x1280. 4 H100-80G further support 1080p and 2K videos (sp_size=4). We will support more inference tricks like [Tile-VAE](https://github.com/pkuliyi2015/multidiffusion-upscaler-for-automatic1111) and [Progressive Aggregation Sampling](https://github.com/IceClear/StableSR) in the future.      
+**GPU Requirement:** The inference scripts are optimized for single GPU usage. 1 H100-80G or A100-80G can handle videos with up to 720x1280 resolution. Models are automatically offloaded between DiT and VAE passes for memory efficiency. We will support more inference tricks like [Tile-VAE](https://github.com/pkuliyi2015/multidiffusion-upscaler-for-automatic1111) and [Progressive Aggregation Sampling](https://github.com/IceClear/StableSR) in the future.
 
-```python
+```bash
 # Take 3B SeedVR2 model inference script as an example
-torchrun --nproc-per-node=NUM_GPUS projects/inference_seedvr2_3b.py --video_path INPUT_FOLDER --output_dir OUTPUT_FOLDER --seed SEED_NUM --res_h OUTPUT_HEIGHT --res_w OUTPUT_WIDTH --sp_size NUM_SP
+python projects/inference_seedvr2_3b.py --video_path INPUT_FOLDER --output_dir OUTPUT_FOLDER --seed SEED_NUM --res_h OUTPUT_HEIGHT --res_w OUTPUT_WIDTH --sp_size 1
+
+# Example: Restore videos to 720p
+python projects/inference_seedvr2_3b.py --video_path ./test_videos --output_dir ./results --res_h 720 --res_w 1280 --sp_size 1
 ```
 
 
